@@ -3,16 +3,16 @@ import os
 from collections import defaultdict
 
 
-def generate_hold_out_split (dataset, training = 0.8, base_dir="splits"):
+def generate_hold_out_split (dataset, training = 0.8, base_dir="splits", size=1.0):
     r = random.Random()
     r.seed(1489215)
 
     article_ids = list(dataset.articles.keys())  # get a list of article ids
     r.shuffle(article_ids)  # and shuffle that list
 
-
-    training_ids = article_ids[:int(training * len(article_ids))]
-    hold_out_ids = article_ids[int(training * len(article_ids)):]
+    amount = int(len(article_ids)*size)
+    training_ids = article_ids[:int(training * amount)]
+    hold_out_ids = article_ids[int(training * amount):]
 
     # write the split body ids out to files for future use
     with open(base_dir+ "/"+ "training_ids.txt", "w+") as f:
@@ -31,10 +31,10 @@ def read_ids(file,base):
         return ids
 
 
-def kfold_split(dataset, training = 0.8, n_folds = 10, base_dir="splits"):
+def kfold_split(dataset, training = 0.8, n_folds = 10, base_dir="splits", size=1.0):
     if not (os.path.exists(base_dir+ "/"+ "training_ids.txt")
             and os.path.exists(base_dir+ "/"+ "hold_out_ids.txt")):
-        generate_hold_out_split(dataset,training,base_dir)
+        generate_hold_out_split(dataset,training,base_dir,size)
 
     training_ids = read_ids("training_ids.txt", base_dir)
     hold_out_ids = read_ids("hold_out_ids.txt", base_dir)
