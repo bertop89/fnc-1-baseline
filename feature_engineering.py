@@ -4,6 +4,7 @@ import nltk
 import numpy as np
 from sklearn import feature_extraction
 from tqdm import tqdm
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 
 _wnl = nltk.WordNetLemmatizer()
@@ -53,12 +54,13 @@ def word_overlap_features(headlines, bodies):
 
 def refuting_features(headlines, bodies):
     _refuting_words = [
+        'fabricated',
+        'invented', 'invented',
         'fake',
         'fraud',
         'hoax',
         'false',
         'deny', 'denies',
-        # 'refute',
         'not',
         'despite',
         'nope',
@@ -66,7 +68,11 @@ def refuting_features(headlines, bodies):
         'bogus',
         'debunk',
         'pranks',
-        'retract'
+        'retract',
+        'lie', 'lies',
+        'bullshit',
+        'stage', 'stagged',
+        'rumor', 'rumors'
     ]
     X = []
     for i, (headline, body) in tqdm(enumerate(zip(headlines, bodies))):
@@ -79,6 +85,8 @@ def refuting_features(headlines, bodies):
 
 def polarity_features(headlines, bodies):
     _refuting_words = [
+        'fabricated',
+        'invented', 'invented',
         'fake',
         'fraud',
         'hoax',
@@ -91,12 +99,16 @@ def polarity_features(headlines, bodies):
         'bogus',
         'debunk',
         'pranks',
-        'retract'
+        'retract',
+        'lie', 'lies',
+        'bullshit',
+        'stage', 'stagged',
+        'rumor', 'rumors'
     ]
 
     def calculate_polarity(text):
         tokens = get_tokenized_lemmas(text)
-        return sum([t in _refuting_words for t in tokens]) % 2
+        return sum([t in _refuting_words for t in tokens]) / len(_refuting_words)
     X = []
     for i, (headline, body) in tqdm(enumerate(zip(headlines, bodies))):
         clean_headline = clean(headline)
@@ -207,3 +219,20 @@ def hand_features(headlines, bodies):
 
 
     return X
+
+def sentiment_features(headlines, bodies):
+
+    def calculate_sentiment(text,analyzer):
+        vs = analyzer.polarity_scores(text)
+        return np.argmax([vs['neg'], vs['pos']])
+
+    X = []
+    analyzer = SentimentIntensityAnalyzer()
+    for i, (headline, body) in tqdm(enumerate(zip(headlines, bodies))):
+        clean_headline = clean(headline)
+        clean_body = clean(body)
+        features = []
+        features.append(calculate_sentiment(clean_headline,analyzer))
+        features.append(calculate_sentiment(clean_body,analyzer))
+        X.append(features)
+    return np.array(X)
