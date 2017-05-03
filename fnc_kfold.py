@@ -2,12 +2,12 @@ import sys
 import numpy as np
 import time
 from sklearn.ensemble import GradientBoostingClassifier
-from feature_engineering import refuting_features, polarity_features, hand_features, gen_or_load_feats, sentiment_features
+from feature_engineering import refuting_features, polarity_features, hand_features, gen_or_load_feats, sentiment_features, cosine_tfidf_features, bleu_features, glove_features
 from feature_engineering import word_overlap_features
+from conditional import get_model_conditional
 from utils.dataset import DataSet
 from utils.generate_test_splits import kfold_split, get_stances_for_folds
 from utils.score import report_score, LABELS, score_submission
-
 from utils.system import parse_params, check_version
 
 
@@ -24,9 +24,25 @@ def generate_features(stances,dataset,name):
     X_polarity = gen_or_load_feats(polarity_features, h, b, "features/polarity."+name+".npy")
     X_hand = gen_or_load_feats(hand_features, h, b, "features/hand."+name+".npy")
     X_sentiment = gen_or_load_feats(sentiment_features, h, b, "features/sentiment."+name+".npy")
+    X_cosinetfidf = gen_or_load_feats(cosine_tfidf_features, h, b, "features/cosinetfidf."+name+".npy")
+    #X_bleu = gen_or_load_feats(bleu_features, h, b, "features/bleu."+name+".npy")
+    
 
     X = np.c_[X_refuting, X_polarity, X_hand, X_overlap]
     return X,y
+
+def generate_features_nn(stances,dataset,name):
+    h, b, y = [],[],[]
+
+    for stance in stances:
+        y.append(LABELS.index(stance['Stance']))
+        h.append(stance['Headline'])
+        b.append(dataset.articles[stance['Body ID']])
+
+    X_glove = gen_or_load_feats(glove_features, h, b, "features/glove_features."+name+".npy")
+
+    return X_glove,y
+
 
 if __name__ == "__main__":
 
@@ -48,13 +64,15 @@ if __name__ == "__main__":
     time_4 = time.time()
     print('Get stances: '+str(time_4-time_3))
 
-    Xs = dict()
-    ys = dict()
+    Xs, Xnn = dict()
+    ys, ynn = dict()
 
     # Load/Precompute all features now
     X_holdout,y_holdout = generate_features(hold_out_stances,d,"holdout")
+    Xnn_holdout,ynn_holdout = generate_features_nn(hold_out_stances,d,"holdout")
     for fold in fold_stances:
         Xs[fold],ys[fold] = generate_features(fold_stances[fold],d,str(fold))
+        Xnn[fold],ynn[fold] = generate_features_nn(fold_stances[fold],d,str(fold))
     time_5 = time.time()
     print('Generate features: '+str(time_5-time_4))
 
@@ -92,6 +110,15 @@ if __name__ == "__main__":
 
     time_6 = time.time()
     print('Train classifier: '+str(time_6-time_5))
+
+    learning_rate = 0.0001
+    batch_size = 70
+    input_size = 100
+    target_size = 4
+    max_seq_length = len(Xs[0])
+    vocab_size = 50
+    model, placeholders = get_model_conditional(batch_size, max_seq_length, input_size, 
+        hidden_size, target_size, vocab_size, pretrain, tanhOrSoftmax, dropout)
 
 
     #Run on Holdout set and report the final score on the holdout set

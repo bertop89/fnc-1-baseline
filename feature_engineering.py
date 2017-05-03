@@ -3,8 +3,11 @@ import re
 import nltk
 import numpy as np
 from sklearn import feature_extraction
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import jaccard_similarity_score
 from tqdm import tqdm
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import pickle
 
 
 _wnl = nltk.WordNetLemmatizer()
@@ -236,3 +239,53 @@ def sentiment_features(headlines, bodies):
         features.append(calculate_sentiment(clean_body,analyzer))
         X.append(features)
     return np.array(X)
+
+def cosine_tfidf_features(headlines, bodies):
+
+    X = []
+    tfidf = feature_extraction.text.TfidfVectorizer()
+    for i, (headline, body) in tqdm(enumerate(zip(headlines, bodies))):
+        clean_headline = clean(headline)
+        clean_body = clean(body)
+        matrix = tfidf.fit_transform([clean_headline, clean_body])
+        X.append(cosine_similarity(matrix[0], matrix[1])[0][0])
+    return np.array(X)
+
+def bleu_features(headlines, bodies):
+
+    X = []
+    for i, (headline, body) in tqdm(enumerate(zip(headlines, bodies))):
+        clean_headline = clean(headline)
+        clean_body = clean(body)
+        matrix = nltk.translate.bleu_score.sentence_bleu(clean_headline, clean_body)
+        X.append(matrix)
+    return np.array(X)
+
+def glove_features(headlines, bodies):
+    X = []
+    with open('../../glove/filename.pickle', 'rb') as handle:
+        model = pickle.load(handle)
+    for i, (headline, body) in tqdm(enumerate(zip(headlines, bodies))):
+        clean_headline = clean(headline)
+        clean_body = clean(body)
+        clean_headline = get_tokenized_lemmas(clean_headline)
+        clean_body = get_tokenized_lemmas(clean_body)
+
+        vector_headline = transform_text(model,clean_headline,100)
+        vector_body = transform_text(model,clean_body,800)
+        X.append([vector_headline, vector_body])
+    return np.array(X)
+
+def transform_text(w2vmodel, words, maxlen=20):
+    data = list()
+    for i in range(0, maxlen-1):  #range(0, len(words)-1):
+        if i < len(words):
+            word = words[i]
+            if word in w2vmodel:
+                index = w2vmodel[word]
+            else:
+                index = w2vmodel["unk"]
+        else:
+            index = w2vmodel["unk"]
+        data.append(index)
+    return np.asarray(data)
