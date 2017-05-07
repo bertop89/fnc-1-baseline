@@ -263,22 +263,37 @@ def bleu_features(headlines, bodies):
 
 def glove_features(headlines, bodies):
     X = []
-    with open('../../glove/filename.pickle', 'rb') as handle:
-        model = pickle.load(handle)
+    model = get_glove()
     for i, (headline, body) in tqdm(enumerate(zip(headlines, bodies))):
         clean_headline = clean(headline)
         clean_body = clean(body)
         clean_headline = get_tokenized_lemmas(clean_headline)
         clean_body = get_tokenized_lemmas(clean_body)
 
-        vector_headline = transform_text(model,clean_headline,100)
-        vector_body = transform_text(model,clean_body,800)
+        vector_headline = transform_text(model,clean_headline,50)
+        vector_body = transform_text(model,clean_body,500)
         X.append([vector_headline, vector_body])
     return np.array(X)
 
+def get_glove():
+    if os.path.isfile('rnn/data/glove.pickle'):
+        with open('rnn/data/glove.pickle', 'rb') as handle:
+            return pickle.load(handle)
+    else:
+        if os.path.isfile('rnn/data/glove.6B.50d.txt'):
+            glove_dict = {}
+            with open('rnn/data/glove.6B.50d.txt') as f:
+                i=0
+                for a in f:
+                    glove_dict[a.split()[0]] = i
+                    i = i+1
+            with open('rnn/data/glove.pickle', 'wb') as handle:
+                pickle.dump(glove_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            return glove_dict   
+
 def transform_text(w2vmodel, words, maxlen=20):
     data = list()
-    for i in range(0, maxlen-1):  #range(0, len(words)-1):
+    for i in range(0, maxlen):  #range(0, len(words)-1):
         if i < len(words):
             word = words[i]
             if word in w2vmodel:
@@ -289,3 +304,11 @@ def transform_text(w2vmodel, words, maxlen=20):
             index = w2vmodel["unk"]
         data.append(index)
     return np.asarray(data)
+
+def get_glove_matrix():
+    X = []
+    if os.path.isfile('rnn/data/glove.6B.50d.txt'):
+        with open('rnn/data/glove.6B.50d.txt') as f:
+            for a in f:
+                X.append(np.fromstring((" ".join(a.split()[1:])), dtype=float, sep=' '))
+    return np.array(X)

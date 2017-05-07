@@ -4,6 +4,11 @@
 LABELS = ['agree', 'disagree', 'discuss', 'unrelated']
 LABELS_RELATED = ['unrelated','related']
 RELATED = LABELS[0:3]
+LABELS_ONE_HOT = {
+    'agree': [1,0,0],
+    'disagree' : [0,1,0],
+    'discuss' : [0,0,1],
+}
 
 def score_submission(gold_labels, test_labels):
     score = 0.0
