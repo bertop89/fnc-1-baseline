@@ -38,25 +38,25 @@ def get_model_conditional(batch_size, max_seq_length, max_seq_length_h, input_si
     drop_prob = None
     if dropout:
         drop_prob = 0.1
-    lstm_encoder = BasicLSTMCell(hidden_size) 
+    lstm_encoder = Encoder(BasicLSTMCell, input_size, hidden_size, drop_prob, drop_prob)
         ##drop_prob, drop_prob)
 
-    state = lstm_encoder.zero_state(batch_size,tf.float32)
+    state = lstm_encoder.zero_state(batch_size)
 
     # [h_i], [h_i, c_i] <-- LSTM
     # [h_i], [h_i] <-- RNN
-    with vs.variable_scope("Encoder1"+str(i)):
-        outputs, states = lstm_encoder(inputs_list[0], state)
+    outputs, states = lstm_encoder(inputs_list, state, "Encoder1"+str(i))
 
     # running a second LSTM conditioned on the last state of the first
-    lstm_encoder2 = BasicLSTMCell(hidden_size)
-    with vs.variable_scope("Encoder2"+str(i)):
-        outputs_cond, states_cond = lstm_encoder2(inputs_cond_list[0], states)
+    lstm_encoder2 = Encoder(BasicLSTMCell, input_size, hidden_size, drop_prob, drop_prob)
+    
+    outputs_cond, states_cond = lstm_encoder2(inputs_cond_list, states, "Encoder2"+str(i))
 
+    outputs_fin = outputs_cond[-1]
     if tanhOrSoftmax == "tanh":
-        model = Projector(target_size, non_linearity=tf.nn.tanh, bias=True)(outputs_cond, 'proj'+str(i)) #tf.nn.softmax
+        model = Projector(target_size, non_linearity=tf.nn.tanh, bias=True)(outputs_fin, 'proj'+str(i)) #tf.nn.softmax
     else:
-        model = Projector(target_size, non_linearity=tf.nn.softmax, bias=True)(outputs_cond, 'proj'+str(i))  # tf.nn.softmax
+        model = Projector(target_size, non_linearity=tf.nn.softmax, bias=True)(outputs_fin, 'proj'+str(i))  # tf.nn.softmax
 
     return model, [inputs, inputs_cond]
 
@@ -148,6 +148,4 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
     predicted = [LABELS[int(a)] for a in predictions_all]
     actual = [LABELS[int(a)] for a in truth_all]
 
-    report_score(actual,predicted)
-
-    return predictions_all
+    return predicted,actual

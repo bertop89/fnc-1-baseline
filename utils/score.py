@@ -8,6 +8,7 @@ LABELS_ONE_HOT = {
     'agree': [1,0,0],
     'disagree' : [0,1,0],
     'discuss' : [0,0,1],
+    'unrelated' : [1,1,1]
 }
 
 def score_submission(gold_labels, test_labels):

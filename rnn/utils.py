@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.contrib.rnn import BasicLSTMCell, LSTMCell, DropoutWrapper, EmbeddingWrapper
 from tensorflow.contrib import layers
-from tensorflow.contrib import rnn as rnn_encoder_factory
+from tensorflow.contrib.rnn import static_rnn as rnn_encoder_factory
 from tensorflow.contrib.legacy_seq2seq import rnn_decoder as rnn_decoder_factory
 from tensorflow.python.ops import variable_scope as vs
 import time
@@ -43,7 +43,7 @@ class Encoder(object):
           - States: list of 2D Tensors with shape [batch_size x self.state_size].
         """
         with vs.variable_scope(scope or "Encoder"):
-            return self.cell(inputs, start_state)
+            return rnn_encoder_factory(self.cell, inputs, start_state)
 
     def zero_state(self, batch_size):
         return self.cell.zero_state(batch_size,tf.float32)

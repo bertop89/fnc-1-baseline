@@ -38,11 +38,11 @@ def generate_features(stances,dataset,name,filters=False):
     X = np.c_[X_refuting, X_polarity, X_hand, X_overlap]
     return X,y
 
-def generate_features_nn(stances,dataset,name):
+def generate_features_nn(stances,dataset,name,filters=False):
     h, b, y = [],[],[]
 
     for stance in stances:
-        if stance['Stance'] != 'unrelated':
+        if stance['Stance'] != 'unrelated' or not filters:
             y.append(LABELS_ONE_HOT[stance['Stance']])
             h.append(stance['Headline'])
             b.append(dataset.articles[stance['Body ID']])
@@ -82,9 +82,10 @@ if __name__ == "__main__":
     # Load/Precompute all features now
     X_holdout,y_holdout = generate_features(hold_out_stances,d,"holdout")
     Xnn_holdout,ynn_holdout = generate_features_nn(hold_out_stances,d,"holdout")
+
     for fold in fold_stances:
         Xs[fold],ys[fold] = generate_features(fold_stances[fold],d,str(fold), True)
-        Xnn[fold],ynn[fold] = generate_features_nn(fold_stances[fold],d,str(fold))
+        Xnn[fold],ynn[fold] = generate_features_nn(fold_stances[fold],d,str(fold), True)
     time_5 = time.time()
     print('Generate features: '+str(time_5-time_4))
 
@@ -124,8 +125,23 @@ if __name__ == "__main__":
             best_score = score
             best_fold = clf
 
-    hidden_size = 50
-    max_epochs = 2
+
+    pred_res = []
+    truth_res = []
+    X_remain = []
+    Y_remain = []
+    #Run on Holdout set and report the final score on the holdout set
+    predicted = best_fold.predict(X_holdout)
+    for idx, val in enumerate(predicted):
+        if val == 1:
+            pred_res.append(LABELS[3])
+            truth_res.append(LABELS[int(y_holdout[idx])])
+        else:
+            X_remain.append(Xnn_holdout[idx])
+            Y_remain.append(ynn_holdout[idx])
+
+    hidden_size = 100
+    max_epochs = 5
     tanhOrSoftmax = "tanh"
     dropout = True
 
@@ -150,15 +166,10 @@ if __name__ == "__main__":
         test_labels = y_test
 
         
-        predictions = test_trainer(train_headlines, train_bodies, train_labels, test_headlines, test_bodies, test_labels, hidden_size, max_epochs, tanhOrSoftmax, dropout,i)
-          
+        pred_nn, actual_nn = test_trainer(train_headlines, train_bodies, train_labels, test_headlines, test_bodies, test_labels, hidden_size, max_epochs, tanhOrSoftmax, dropout,i)
+     
+    pred_res = pred_res + pred_nn
+    truth_res = truth_res + actual_nn
 
     time_6 = time.time()
     print('Train classifier: '+str(time_6-time_5))
-
-
-    #Run on Holdout set and report the final score on the holdout set
-    predicted = [LABELS[int(a)] for a in best_fold.predict(X_holdout)]
-    actual = [LABELS[int(a)] for a in y_holdout]
-
-    report_score(actual,predicted)
