@@ -4,7 +4,7 @@ from feature_engineering import get_glove_matrix
 from tensorflow.contrib.rnn import core_rnn_cell, BasicLSTMCell
 from tensorflow.python.ops import variable_scope as vs
 from utils.score import report_score, LABELS
-from rnn.utils import Encoder, Projector, Hook, AccuracyHook, LossHook, SpeedHook, SemEvalHook, AccuracyHookIgnoreNeutral, BatchBucketSampler, TraceHook, SaveModelHookDev, Trainer, load_model_dev
+from rnn.utils import Encoder, Projector, Hook, AccuracyHook, LossHook, SpeedHook, SemEvalHook, AccuracyHookIgnoreNeutral, BatchBucketSampler, TraceHook, SaveModelHookDev, Trainer, load_model_dev, load_model_holdout
 
 def get_model_conditional(batch_size, max_seq_length, max_seq_length_h, input_size, hidden_size, target_size,
                           vocab_size, pretrain, tanhOrSoftmax, dropout,i):
@@ -14,8 +14,11 @@ def get_model_conditional(batch_size, max_seq_length, max_seq_length_h, input_si
     """
 
     # batch_size x max_seq_length
-    inputs_cond = tf.placeholder(tf.int32, [batch_size, 500])
-    inputs = tf.placeholder(tf.int32, [batch_size, 50])
+    inputs_cond = tf.placeholder(tf.int32, [batch_size, 500], "inputs_cond")
+    inputs = tf.placeholder(tf.int32, [batch_size, 50], "inputs")
+
+    tf.add_to_collection("inputs", inputs)
+    tf.add_to_collection("inputs_cond", inputs_cond)
 
     cont_train = True
     if pretrain == "pre": # continue training embeddings or not. Currently works better to continue training them.
@@ -58,6 +61,8 @@ def get_model_conditional(batch_size, max_seq_length, max_seq_length_h, input_si
     else:
         model = Projector(target_size, non_linearity=tf.nn.softmax, bias=True)(outputs_fin, 'proj'+str(i))  # tf.nn.softmax
 
+    tf.add_to_collection("model", model)
+
     return model, [inputs, inputs_cond]
 
 def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_test, hidden_size, max_epochs, tanhOrSoftmax, dropout,i):
@@ -80,6 +85,7 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
                                                                    vocab_size, "pre_cont", tanhOrSoftmax, dropout,i)
 
     targets = tf.placeholder(tf.float32, [batch_size, target_size], "targets")
+    tf.add_to_collection("targets", targets)
 
     loss = tf.nn.softmax_cross_entropy_with_logits(logits=model, labels=targets)   # targets: labels (e.g. pos/neg/neutral)
 
@@ -105,11 +111,11 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
         summary_writer = tf.summary.FileWriter("rnn/save", graph_def=sess.graph_def)
 
         hooks = [
-            #SpeedHook(summary_writer, iteration_interval=50, batch_size=batch_size),
+            SpeedHook(summary_writer, iteration_interval=50, batch_size=batch_size),
             SaveModelHookDev(path="rnn/save/" + outfolder, at_every_epoch=1),
             #SemEvalHook(corpus_test_batch, placeholders, 1),
-            #LossHook(summary_writer, iteration_interval=50),
-            #AccuracyHook(summary_writer, acc_batcher, placeholders, 2),
+            LossHook(summary_writer, iteration_interval=50),
+            AccuracyHook(summary_writer, acc_batcher, placeholders, 2),
             #AccuracyHookIgnoreNeutral(summary_writer, acc_batcher, placeholders, 2)
         ]
 
@@ -119,7 +125,6 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
 
         print("Applying to test data, getting predictions for NONE/AGAINST/FAVOR")
 
-        predictions_detailed_all = []
         predictions_all = []
         truth_all = []
 
@@ -140,11 +145,69 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
             truth_all.extend(truth)
             correct += sum(truth == predicted)
 
-            print("Num testing samples " + str(total) +
-                  "\tAcc " + str(float(correct)/total) +
-                  "\tCorrect " + str(correct) + "\tTotal " + str(total))
+        print("Num testing samples " + str(total) +
+                      "\tAcc " + str(float(correct)/total) +
+                      "\tCorrect " + str(correct) + "\tTotal " + str(total))        
 
             
+    predicted = [LABELS[int(a)] for a in predictions_all]
+    actual = [LABELS[int(a)] for a in truth_all]
+
+    return predicted,actual
+
+
+def predict_holdout(headlines_holdout, bodies_holdout, labels_holdout, tanhOrSoftmax, hidden_size):
+
+    batch_size = 70
+
+    outfolder = "_".join(["hidden-" + str(hidden_size), tanhOrSoftmax])
+
+    data_test = [np.asarray(headlines_holdout), np.asarray(bodies_holdout), np.asarray(labels_holdout)]
+
+    corpus_test_batch = BatchBucketSampler(data_test, batch_size)
+
+    with tf.Session() as sess:
+
+        load_model_holdout(sess, "rnn/save/" + outfolder + "_ep" + str(1), "model.tf")
+
+        model = tf.get_collection("model")[0]
+
+        placeholders = [
+            tf.get_collection("inputs")[0],
+            tf.get_collection("inputs_cond")[0],
+            tf.get_collection("targets")[0]
+        ]
+
+        total = 0
+        correct = 0
+
+        predictions_all = []
+        truth_all = []
+
+        for values in corpus_test_batch:
+
+            total += len(values[-1])
+            feed_dict = {}
+            for i in range(0, len(placeholders)):
+                batch_xs = np.vstack([np.expand_dims(x, 0) for x in values[i]])
+                feed_dict[placeholders[i]] = batch_xs
+
+            truth = np.argmax(values[-1], 1)  # values[2] is a 3-length one-hot vector containing the labels
+            predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
+                                     feed_dict=feed_dict)
+
+            print(predicted[0])
+            predictions_all.extend(predicted)
+            truth_all.extend(truth)
+            correct += sum(truth == predicted)
+
+            print("Num testing samples " + str(total) +
+                          "\tAcc " + str(float(correct)/total) +
+                          "\tCorrect " + str(correct) + "\tTotal " + str(total))
+
+            if (total > 1000):
+                break
+
     predicted = [LABELS[int(a)] for a in predictions_all]
     actual = [LABELS[int(a)] for a in truth_all]
 

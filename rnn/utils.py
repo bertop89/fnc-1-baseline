@@ -333,7 +333,7 @@ class SaveModelHookDev(Hook):
     def __init__(self, path, at_every_epoch=5):
         self.path = path
         self.at_every_epoch = at_every_epoch
-        self.saver = tf.train.Saver(tf.trainable_variables())
+        self.saver = tf.train.Saver()
 
     def __call__(self, sess, epoch, iteration, model, loss):
         if epoch%self.at_every_epoch == 0:
@@ -416,3 +416,7 @@ class Trainer(object):
 def load_model_dev(sess, path, modelname):
     saver = tf.train.Saver(tf.trainable_variables())
     saver.restore(sess, os.path.join(path, modelname))
+
+def load_model_holdout(sess, path, modelname):
+    new_saver = tf.train.import_meta_graph(os.path.join(path, modelname)+'.meta')
+    new_saver.restore(sess, os.path.join(path, modelname))

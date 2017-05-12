@@ -2,10 +2,10 @@ import sys
 import numpy as np
 import time
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score, confusion_matrix
 from feature_engineering import refuting_features, polarity_features, hand_features, gen_or_load_feats, sentiment_features, cosine_tfidf_features, bleu_features, glove_features
 from feature_engineering import word_overlap_features, get_glove_matrix
-from rnn.conditional import get_model_conditional, test_trainer
+from rnn.conditional import get_model_conditional, test_trainer, predict_holdout
 from utils.dataset import DataSet
 from utils.generate_test_splits import kfold_split, get_stances_for_folds
 from utils.score import report_score, LABELS, LABELS_ONE_HOT, score_submission
@@ -67,6 +67,7 @@ if __name__ == "__main__":
     print('Dataset load: '+str(time_2-time_1))
 
     folds,hold_out = kfold_split(d,n_folds=params['n_folds'],size=params['size'])
+
     time_3 = time.time()
     print('Kfold_split: '+str(time_3-time_2))
 
@@ -120,7 +121,7 @@ if __name__ == "__main__":
 
         score = fold_score/max_fold_score
 
-        print("Score for fold "+ str(fold) + " was - " + str(score))
+        print("Score for fold "+ str(fold) + " was - f1 " + str(score) + " - " + str(accuracy_score(actual,predicted)))
         if score > best_score:
             best_score = score
             best_fold = clf
@@ -130,18 +131,17 @@ if __name__ == "__main__":
     truth_res = []
     X_remain = []
     Y_remain = []
-    #Run on Holdout set and report the final score on the holdout set
-    predicted = best_fold.predict(X_holdout)
+
     for idx, val in enumerate(predicted):
-        if val == 1:
+        if val == 0:
             pred_res.append(LABELS[3])
             truth_res.append(LABELS[int(y_holdout[idx])])
         else:
             X_remain.append(Xnn_holdout[idx])
             Y_remain.append(ynn_holdout[idx])
 
-    hidden_size = 100
-    max_epochs = 5
+    hidden_size = 50
+    max_epochs = 2
     tanhOrSoftmax = "tanh"
     dropout = True
 
@@ -165,11 +165,21 @@ if __name__ == "__main__":
         test_bodies = X_test[:,1]
         test_labels = y_test
 
-        
-        pred_nn, actual_nn = test_trainer(train_headlines, train_bodies, train_labels, test_headlines, test_bodies, test_labels, hidden_size, max_epochs, tanhOrSoftmax, dropout,i)
-     
+        test_trainer(train_headlines, train_bodies, train_labels, test_headlines, test_bodies, test_labels, hidden_size, max_epochs, tanhOrSoftmax, dropout,i)
+    
+    X_remain = np.asarray(X_remain)
+    Y_remain = np.asarray(Y_remain)
+
+    holdout_headlines = X_remain[:,0]
+    holdout_bodies = X_remain[:,1]
+    holdout_labels = Y_remain
+
+    pred_nn, actual_nn = predict_holdout(holdout_headlines, holdout_bodies, holdout_labels, tanhOrSoftmax, hidden_size)
+
     pred_res = pred_res + pred_nn
     truth_res = truth_res + actual_nn
+
+    report_score(truth_res,pred_res)
 
     time_6 = time.time()
     print('Train classifier: '+str(time_6-time_5))
