@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import time
 from feature_engineering import get_glove_matrix
 from tensorflow.contrib.rnn import core_rnn_cell, BasicLSTMCell
 from tensorflow.python.ops import variable_scope as vs
@@ -14,8 +15,8 @@ def get_model_conditional(batch_size, max_seq_length, max_seq_length_h, input_si
     """
 
     # batch_size x max_seq_length
-    inputs_cond = tf.placeholder(tf.int32, [batch_size, 500], "inputs_cond")
-    inputs = tf.placeholder(tf.int32, [batch_size, 50], "inputs")
+    inputs_cond = tf.placeholder(tf.int32, [batch_size, max_seq_length], "inputs_cond")
+    inputs = tf.placeholder(tf.int32, [batch_size, max_seq_length_h], "inputs")
 
     tf.add_to_collection("inputs", inputs)
     tf.add_to_collection("inputs_cond", inputs_cond)
@@ -48,12 +49,12 @@ def get_model_conditional(batch_size, max_seq_length, max_seq_length_h, input_si
 
     # [h_i], [h_i, c_i] <-- LSTM
     # [h_i], [h_i] <-- RNN
-    outputs, states = lstm_encoder(inputs_list, state, "Encoder1"+str(i))
+    outputs, states = lstm_encoder(inputs_cond_list, state, "Encoder1"+str(i))
 
     # running a second LSTM conditioned on the last state of the first
     lstm_encoder2 = Encoder(BasicLSTMCell, input_size, hidden_size, drop_prob, drop_prob)
     
-    outputs_cond, states_cond = lstm_encoder2(inputs_cond_list, states, "Encoder2"+str(i))
+    outputs_cond, states_cond = lstm_encoder2(inputs_list, states, "Encoder2"+str(i))
 
     outputs_fin = outputs_cond[-1]
     if tanhOrSoftmax == "tanh":
@@ -67,8 +68,10 @@ def get_model_conditional(batch_size, max_seq_length, max_seq_length_h, input_si
 
 def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_test, hidden_size, max_epochs, tanhOrSoftmax, dropout,i):
 
+    time_1 = time.time()
+
     # parameters
-    learning_rate = 0.0001
+    learning_rate = 0.01
     batch_size = 70
     input_size = 50
     target_size = 3
@@ -76,7 +79,9 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
     max_seq_length = len(bodies[0])
     max_seq_length_h = len(headlines[0])
 
-    data = [np.asarray(headlines), np.asarray(bodies), np.asarray(labels)]
+
+    ids = np.vstack([np.expand_dims(x, 0) for x in list(range(1,len(bodies)+1))])
+    data = [np.asarray(headlines), np.asarray(bodies), np.asarray(labels), np.asarray(ids)]
 
     X = get_glove_matrix()
     vocab_size = 400000
@@ -84,6 +89,7 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
     model, placeholders = get_model_conditional(batch_size, max_seq_length, max_seq_length_h, input_size, hidden_size, target_size,
                                                                    vocab_size, "pre_cont", tanhOrSoftmax, dropout,i)
 
+    ids = tf.placeholder(tf.float32, [batch_size, 1], "ids")
     targets = tf.placeholder(tf.float32, [batch_size, target_size], "targets")
     tf.add_to_collection("targets", targets)
 
@@ -95,11 +101,17 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
     acc_batcher = BatchBucketSampler(data, batch_size)
 
     placeholders += [targets]
+    placeholders += [ids]
 
     pad_nr = batch_size - (
     len(labels_test) % batch_size) + 1  # since train/test batches need to be the same size, add padding for test
 
-    data_test = [np.asarray(headlines_test), np.asarray(bodies_test), np.asarray(labels_test)]
+    ids_test = np.vstack([np.expand_dims(x, 0) for x in list(range(1,len(labels_test)+1))])
+
+    data_test = [np.lib.pad(headlines_test, ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(bodies_test, ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(labels_test, ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(ids_test, ((0, pad_nr), (0, 0)), 'constant', constant_values=(0))]
 
     corpus_test_batch = BatchBucketSampler(data_test, batch_size)
 
@@ -108,14 +120,13 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
 
     with tf.Session() as sess:
 
-        summary_writer = tf.summary.FileWriter("rnn/save", graph_def=sess.graph_def)
+        summary_writer = tf.summary.FileWriter("rnn/save", graph=sess.graph)
 
         hooks = [
             SpeedHook(summary_writer, iteration_interval=50, batch_size=batch_size),
             SaveModelHookDev(path="rnn/save/" + outfolder, at_every_epoch=1),
-            #SemEvalHook(corpus_test_batch, placeholders, 1),
             LossHook(summary_writer, iteration_interval=50),
-            AccuracyHook(summary_writer, acc_batcher, placeholders, 2),
+            #AccuracyHook(summary_writer, acc_batcher, placeholders, 2),
             #AccuracyHookIgnoreNeutral(summary_writer, acc_batcher, placeholders, 2)
         ]
 
@@ -127,6 +138,7 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
 
         predictions_all = []
         truth_all = []
+        ids_all = []
 
         load_model_dev(sess, "rnn/save/" + outfolder + "_ep" + str(epoch), "model.tf")
 
@@ -136,18 +148,18 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
             total += len(values[-1])
             feed_dict = {}
             for i in range(0, len(placeholders)):
-                batch_xs = np.vstack([np.expand_dims(x, 0) for x in values[i]])
-                feed_dict[placeholders[i]] = batch_xs
-            truth = np.argmax(values[-1], 1)  # values[2] is a 3-length one-hot vector containing the labels
+                feed_dict[placeholders[i]] = values[i]
+            truth = np.argmax(values[-2], 1)  # values[2] is a 3-length one-hot vector containing the labels
+            ids_all.extend(values[-1])
             predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
                                      feed_dict=feed_dict)
             predictions_all.extend(predicted)
             truth_all.extend(truth)
             correct += sum(truth == predicted)
 
-        print("Num testing samples " + str(total) +
+        print("TEST Num testing samples " + str(total) +
                       "\tAcc " + str(float(correct)/total) +
-                      "\tCorrect " + str(correct) + "\tTotal " + str(total))        
+                      "\tCorrect " + str(correct) + "\tTotal " + str(total) + "\tTime " + str((time.time()-time_1)/60))        
 
             
     predicted = [LABELS[int(a)] for a in predictions_all]
@@ -156,26 +168,35 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
     return predicted,actual
 
 
-def predict_holdout(headlines_holdout, bodies_holdout, labels_holdout, tanhOrSoftmax, hidden_size):
+def predict_holdout(headlines_holdout, bodies_holdout, labels_holdout, tanhOrSoftmax, hidden_size, epoch):
 
     batch_size = 70
 
     outfolder = "_".join(["hidden-" + str(hidden_size), tanhOrSoftmax])
 
-    data_test = [np.asarray(headlines_holdout), np.asarray(bodies_holdout), np.asarray(labels_holdout)]
+    ids_holdout = list(range(1,len(labels_holdout)+1))
+
+    pad_nr = batch_size - (
+    len(labels_holdout) % batch_size) + 1  # since train/test batches need to be the same size, add padding for test
+
+    data_test = [np.lib.pad(np.vstack([np.expand_dims(x, 0) for x in headlines_holdout]), ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(np.vstack([np.expand_dims(x, 0) for x in bodies_holdout]), ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(np.asarray(labels_holdout), ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(np.vstack([np.expand_dims(x, 0) for x in ids_holdout]), ((0, pad_nr), (0, 0)), 'constant', constant_values=(0))]
 
     corpus_test_batch = BatchBucketSampler(data_test, batch_size)
 
     with tf.Session() as sess:
 
-        load_model_holdout(sess, "rnn/save/" + outfolder + "_ep" + str(1), "model.tf")
+        load_model_holdout(sess, "rnn/save/" + outfolder + "_ep" + str(epoch-1), "model.tf")
 
         model = tf.get_collection("model")[0]
 
         placeholders = [
             tf.get_collection("inputs")[0],
             tf.get_collection("inputs_cond")[0],
-            tf.get_collection("targets")[0]
+            tf.get_collection("targets")[0],
+            tf.placeholder(tf.float32, [batch_size, 1], "ids")
         ]
 
         total = 0
@@ -183,32 +204,34 @@ def predict_holdout(headlines_holdout, bodies_holdout, labels_holdout, tanhOrSof
 
         predictions_all = []
         truth_all = []
+        ids_all = []
 
         for values in corpus_test_batch:
-
             total += len(values[-1])
             feed_dict = {}
             for i in range(0, len(placeholders)):
-                batch_xs = np.vstack([np.expand_dims(x, 0) for x in values[i]])
-                feed_dict[placeholders[i]] = batch_xs
+                feed_dict[placeholders[i]] = values[i]
 
-            truth = np.argmax(values[-1], 1)  # values[2] is a 3-length one-hot vector containing the labels
+            truth = np.argmax(values[-2], 1)  # values[2] is a 3-length one-hot vector containing the labels
+            ids_all.extend(values[-1])
             predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
                                      feed_dict=feed_dict)
-
-            print(predicted[0])
             predictions_all.extend(predicted)
             truth_all.extend(truth)
             correct += sum(truth == predicted)
 
-            print("Num testing samples " + str(total) +
+            print("HOLDOUT Num testing samples " + str(total) +
                           "\tAcc " + str(float(correct)/total) +
                           "\tCorrect " + str(correct) + "\tTotal " + str(total))
 
-            if (total > 1000):
-                break
+    final_predicted = []
+    final_actual = []
+    for idx, val in enumerate(predictions_all):
+        if ids_all[idx] != 0:
+            final_predicted.append(val)
+            final_actual.append(truth_all[idx])
 
-    predicted = [LABELS[int(a)] for a in predictions_all]
-    actual = [LABELS[int(a)] for a in truth_all]
+    predicted = [LABELS[int(a)] for a in final_predicted]
+    actual = [LABELS[int(a)] for a in final_actual]
 
     return predicted,actual

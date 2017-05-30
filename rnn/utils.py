@@ -139,6 +139,7 @@ class AccuracyHook(TraceHook):
 
     def __call__(self, sess, epoch, iteration, model, loss):
         if iteration == 0 and epoch % self.at_every_epoch == 0:
+            print('Before AccuracyHook '+str(epoch))
             total = 0
             correct = 0
             for values in self.batcher:
@@ -146,7 +147,7 @@ class AccuracyHook(TraceHook):
                 feed_dict = {}
                 for i in range(0, len(self.placeholders)):
                     feed_dict[self.placeholders[i]] = values[i]
-                truth = np.argmax(values[-1], 1)
+                truth = np.argmax(values[-2], 1)
                 predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
                                      feed_dict=feed_dict)
                 correct += sum(truth == predicted)
@@ -155,6 +156,7 @@ class AccuracyHook(TraceHook):
             print("Epoch " + str(epoch) +
                   "\tAcc " + str(acc) +
                   "\tCorrect " + str(correct) + "\tTotal " + str(total))
+            print('After AccuracyHook '+str(epoch))
 
 
 
@@ -274,7 +276,7 @@ class SemEvalHook(Hook):
                 feed_dict = {}
                 for i in range(0, len(self.placeholders)):
                     feed_dict[self.placeholders[i]] = values[i]
-                truth = np.argmax(values[-1], 1)  # values[2], batch sampled from data[2], is a 3-legth one-hot vector containing the labels. this is to transform those back into integers
+                truth = np.argmax(values[-2], 1)  # values[2], batch sampled from data[2], is a 3-legth one-hot vector containing the labels. this is to transform those back into integers
                 predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
                                      feed_dict=feed_dict)
                 correct += sum(truth == predicted)
@@ -297,34 +299,43 @@ class AccuracyHookIgnoreNeutral(TraceHook):
         if iteration == 0 and epoch % self.at_every_epoch == 0:
             total = 0
             total_old = 0
-            correct_old = 0
             correct = 0
+            print('Before AccuracyHookIgnoreNeutral '+str(epoch))
             for values in self.batcher:
                 total_old += len(values[-1])
                 feed_dict = {}
                 for i in range(0, len(self.placeholders)):
                     feed_dict[self.placeholders[i]] = values[i]
-                truth = np.argmax(values[-1], 1)
+                truth = np.argmax(values[-2], 1)
+
+                print('Before mask truth')
 
                 # mask truth
                 truth_noneutral = ma.masked_values(truth, 0)
                 truth_noneutral_compr = truth_noneutral.compressed()
 
+                print('Before predicted')
+
                 predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
                                      feed_dict=feed_dict)
+
+                print('Before mask predicted')
 
                 pred_nonneutral = ma.array(predicted, mask=truth_noneutral.mask)
                 pred_nonneutral_compr = pred_nonneutral.compressed()
 
-                correct_old += sum(truth == predicted)
+                print('Before compares')
+
                 correct += sum(truth_noneutral_compr == pred_nonneutral_compr)
                 total += len(truth_noneutral_compr)
 
             acc = float(correct) / total
+            print('Before updates')
             self.update_summary(sess, iteration, "AccurayNonNeut", acc)
             print("Epoch " + str(epoch) +
                   "\tAccNonNeut " + str(acc) +
                   "\tCorrect " + str(correct) + "\tTotal " + str(total))
+            print('After AccuracyHookIgnoreNeutral '+str(epoch))
             return acc
         return 0.0
 
@@ -336,8 +347,7 @@ class SaveModelHookDev(Hook):
         self.saver = tf.train.Saver()
 
     def __call__(self, sess, epoch, iteration, model, loss):
-        if epoch%self.at_every_epoch == 0:
-            #print("Saving model...")
+        if iteration == 0 and epoch%self.at_every_epoch == 0:
             SaveModelHookDev.save_model_dev(self.saver, sess, self.path + "_ep" + str(epoch) + "/", "model.tf")
 
     def save_model_dev(saver, sess, path, modelname):
@@ -365,10 +375,10 @@ class Trainer(object):
             session = tf.Session()
             close_session_after_training = True  # no session existed before, we provide a temporary session
 
-        init = tf.initialize_all_variables()
+        init = tf.global_variables_initializer()
 
         if (pretrain == "pre" or pretrain == "pre_cont") and sep == False: # hack if we want to use pre-trained embeddings
-            vars = tf.all_variables()
+            vars = tf.global_variables()
             emb_var = vars[0]
             session.run(emb_var.assign(embedd))
         elif (pretrain == "pre" or pretrain == "pre_cont") and sep == True:
@@ -386,8 +396,7 @@ class Trainer(object):
                 iteration += 1
                 feed_dict = {}
                 for i in range(0, len(placeholders)):
-                    batch_xs = np.vstack([np.expand_dims(x, 0) for x in values[i]])
-                    feed_dict[placeholders[i]] = batch_xs
+                    feed_dict[placeholders[i]] = values[i]
                 _, current_loss = session.run([minimization_op, loss], feed_dict=feed_dict)
                 current_loss = sum(current_loss)
                 for hook in self.hooks:

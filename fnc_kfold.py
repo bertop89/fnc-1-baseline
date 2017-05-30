@@ -7,7 +7,7 @@ from feature_engineering import refuting_features, polarity_features, hand_featu
 from feature_engineering import word_overlap_features, get_glove_matrix
 from rnn.conditional import get_model_conditional, test_trainer, predict_holdout
 from utils.dataset import DataSet
-from utils.generate_test_splits import kfold_split, get_stances_for_folds
+from utils.generate_test_splits import kfold_split, get_stances_for_folds, load_train_nn
 from utils.score import report_score, LABELS, LABELS_ONE_HOT, score_submission
 from utils.system import parse_params, check_version
 
@@ -56,8 +56,9 @@ def generate_features_nn(stances,dataset,name,filters=False):
 
 if __name__ == "__main__":
 
-    #params = { 'n_folds' : 10, 'size' : 1.0, 'n_estimators' : 200}
-    params = { 'n_folds' : 5, 'size' : 0.2, 'n_estimators' : 25}
+    #params = { 'n_folds' : 10, 'n_estimators' : 200}
+    params = { 'n_folds' : 5, 'n_estimators' : 25}
+
     check_version()
     parse_params()
 
@@ -66,7 +67,7 @@ if __name__ == "__main__":
     time_2 = time.time()
     print('Dataset load: '+str(time_2-time_1))
 
-    folds,hold_out = kfold_split(d,n_folds=params['n_folds'],size=params['size'])
+    folds,hold_out = kfold_split(d,n_folds=params['n_folds'])
 
     time_3 = time.time()
     print('Kfold_split: '+str(time_3-time_2))
@@ -116,21 +117,26 @@ if __name__ == "__main__":
         fold_score = f1_score(actual, predicted)
         max_fold_score = f1_score(actual, actual)
 
-        #fold_score, _ = score_submission(actual, predicted)
-        #max_fold_score, _ = score_submission(actual, actual)
-
         score = fold_score/max_fold_score
 
         print("Score for fold "+ str(fold) + " was - f1 " + str(score) + " - " + str(accuracy_score(actual,predicted)))
         if score > best_score:
             best_score = score
             best_fold = clf
+        break
 
 
     pred_res = []
     truth_res = []
     X_remain = []
     Y_remain = []
+
+    # X_holdout = X_holdout[:10]
+    # y_holdout = y_holdout[:10]
+    # Xnn_holdout = Xnn_holdout[:10]
+    # ynn_holdout = ynn_holdout[:10]
+
+    predicted = best_fold.predict(X_holdout)
 
     for idx, val in enumerate(predicted):
         if val == 0:
@@ -141,40 +147,33 @@ if __name__ == "__main__":
             Y_remain.append(ynn_holdout[idx])
 
     hidden_size = 50
-    max_epochs = 2
-    tanhOrSoftmax = "tanh"
+    max_epochs = 10
+    tanhOrSoftmax = "softmax"
     dropout = True
 
-    i=0
-    for fold in fold_stances:
-        i=i+1
-        ids = list(range(len(folds)))
-        del ids[fold]
 
-        X_train = np.vstack(tuple([Xnn[i] for i in ids]))
-        y_train = np.vstack(tuple([ynn[i] for i in ids]))
+    X_train = np.vstack(tuple(value for key,value in Xnn.items()))
+    y_train = np.vstack(tuple(value for key,value in ynn.items()))
 
-        X_test = Xnn[fold]
-        y_test = ynn[fold]
+    train_i = int(X_train.shape[0]*0.8)
 
-        train_headlines = X_train[:,0]
-        train_bodies = X_train[:,1]
-        train_labels = y_train
+    train_headlines, train_bodies, train_labels = load_train_nn(X_train,y_train,train_i)
 
-        test_headlines = X_test[:,0]
-        test_bodies = X_test[:,1]
-        test_labels = y_test
+    y_copy = ["".join(map(str, i)) for i in train_labels]
 
-        test_trainer(train_headlines, train_bodies, train_labels, test_headlines, test_bodies, test_labels, hidden_size, max_epochs, tanhOrSoftmax, dropout,i)
-    
+    unique, counts = np.unique(y_copy, return_counts=True)
+    print(np.asarray((unique,counts)).T)
+
+    test_headlines = np.vstack([np.expand_dims(x, 0) for x in X_train[train_i:,0]])
+    test_bodies = np.vstack([np.expand_dims(x, 0) for x in X_train[train_i:,1]])
+    test_labels = np.vstack([np.expand_dims(x, 0) for x in y_train[train_i:]])
+
+    test_trainer(train_headlines, train_bodies, train_labels, test_headlines, test_bodies, test_labels, hidden_size, max_epochs, tanhOrSoftmax, dropout,0)
+
     X_remain = np.asarray(X_remain)
     Y_remain = np.asarray(Y_remain)
 
-    holdout_headlines = X_remain[:,0]
-    holdout_bodies = X_remain[:,1]
-    holdout_labels = Y_remain
-
-    pred_nn, actual_nn = predict_holdout(holdout_headlines, holdout_bodies, holdout_labels, tanhOrSoftmax, hidden_size)
+    pred_nn, actual_nn = predict_holdout(X_remain[:,0], X_remain[:,1], Y_remain, tanhOrSoftmax, hidden_size, max_epochs)
 
     pred_res = pred_res + pred_nn
     truth_res = truth_res + actual_nn

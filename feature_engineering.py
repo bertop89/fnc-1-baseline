@@ -270,8 +270,8 @@ def glove_features(headlines, bodies):
         clean_headline = get_tokenized_lemmas(clean_headline)
         clean_body = get_tokenized_lemmas(clean_body)
 
-        vector_headline = transform_text(model,clean_headline,50)
-        vector_body = transform_text(model,clean_body,500)
+        vector_headline = transform_text(model,clean_headline,20)
+        vector_body = transform_text(model,clean_body,200)
         X.append([vector_headline, vector_body])
     return np.array(X)
 
