@@ -280,9 +280,9 @@ def get_glove():
         with open('rnn/data/glove.pickle', 'rb') as handle:
             return pickle.load(handle)
     else:
-        if os.path.isfile('rnn/data/glove.6B.50d.txt'):
+        if os.path.isfile('rnn/data/glove.6B.100d.txt'):
             glove_dict = {}
-            with open('rnn/data/glove.6B.50d.txt') as f:
+            with open('rnn/data/glove.6B.100d.txt') as f:
                 i=0
                 for a in f:
                     glove_dict[a.split()[0]] = i
@@ -307,8 +307,8 @@ def transform_text(w2vmodel, words, maxlen=20):
 
 def get_glove_matrix():
     X = []
-    if os.path.isfile('rnn/data/glove.6B.50d.txt'):
-        with open('rnn/data/glove.6B.50d.txt') as f:
+    if os.path.isfile('rnn/data/glove.6B.100d.txt'):
+        with open('rnn/data/glove.6B.100d.txt') as f:
             for a in f:
                 X.append(np.fromstring((" ".join(a.split()[1:])), dtype=float, sep=' '))
     return np.array(X)

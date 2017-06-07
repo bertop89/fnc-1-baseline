@@ -2,12 +2,15 @@ from csv import DictReader
 
 
 class DataSet():
-    def __init__(self, path="fnc-1"):
+    def __init__(self, path="fnc-1", set_type="train"):
         self.path = path
 
         print("Reading dataset")
         bodies = "train_bodies.csv"
         stances = "train_stances.csv"
+        if set_type == 'test':
+            bodies = "test_bodies.csv"
+            stances = "test_stances_unlabeled.csv"
 
         self.stances = self.read(stances)
         articles = self.read(bodies)

@@ -70,13 +70,13 @@ def load_train_nn(Xnn,ynn,train_i):
         train_labels = np.vstack([np.expand_dims(x, 0) for x in ynn[:train_i]])
 
         agree_idx = []
-        while len(agree_idx) < 2500:
+        while len(agree_idx) < 3321:
             idx = randint(0,train_headlines.shape[0]-1)
             if (train_labels[idx] == [1,0,0]).all():
                 agree_idx.append(idx)
 
         disagree_idx = []
-        while len(disagree_idx) < 4000:
+        while len(disagree_idx) < 5181:
             idx = randint(0,train_headlines.shape[0]-1)
             if (train_labels[idx] == [0,1,0]).all():
                 disagree_idx.append(idx)

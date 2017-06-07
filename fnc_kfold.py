@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 import time
+from sklearn.externals import joblib
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import f1_score, accuracy_score, confusion_matrix
 from feature_engineering import refuting_features, polarity_features, hand_features, gen_or_load_feats, sentiment_features, cosine_tfidf_features, bleu_features, glove_features
@@ -56,8 +57,8 @@ def generate_features_nn(stances,dataset,name,filters=False):
 
 if __name__ == "__main__":
 
-    #params = { 'n_folds' : 10, 'n_estimators' : 200}
-    params = { 'n_folds' : 5, 'n_estimators' : 25}
+    params = { 'n_folds' : 5, 'n_estimators' : 200}
+    #params = { 'n_folds' : 5, 'n_estimators' : 25}
 
     check_version()
     parse_params()
@@ -123,18 +124,13 @@ if __name__ == "__main__":
         if score > best_score:
             best_score = score
             best_fold = clf
-        break
-
+            
+    joblib.dump(best_fold, 'model/gb.pkl') 
 
     pred_res = []
     truth_res = []
     X_remain = []
     Y_remain = []
-
-    # X_holdout = X_holdout[:10]
-    # y_holdout = y_holdout[:10]
-    # Xnn_holdout = Xnn_holdout[:10]
-    # ynn_holdout = ynn_holdout[:10]
 
     predicted = best_fold.predict(X_holdout)
 
@@ -147,7 +143,7 @@ if __name__ == "__main__":
             Y_remain.append(ynn_holdout[idx])
 
     hidden_size = 50
-    max_epochs = 10
+    max_epochs = 15
     tanhOrSoftmax = "softmax"
     dropout = True
 

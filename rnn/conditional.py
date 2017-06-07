@@ -73,7 +73,7 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
     # parameters
     learning_rate = 0.01
     batch_size = 70
-    input_size = 50
+    input_size = 100
     target_size = 3
 
     max_seq_length = len(bodies[0])
@@ -149,7 +149,7 @@ def test_trainer(headlines, bodies, labels, headlines_test, bodies_test, labels_
             feed_dict = {}
             for i in range(0, len(placeholders)):
                 feed_dict[placeholders[i]] = values[i]
-            truth = np.argmax(values[-2], 1)  # values[2] is a 3-length one-hot vector containing the labels
+            truth = [3 if (x == [1,1,1]).all() else np.argmax(x) for x in values[-2]]  # values[2] is a 3-length one-hot vector containing the labels
             ids_all.extend(values[-1])
             predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
                                      feed_dict=feed_dict)
@@ -212,7 +212,7 @@ def predict_holdout(headlines_holdout, bodies_holdout, labels_holdout, tanhOrSof
             for i in range(0, len(placeholders)):
                 feed_dict[placeholders[i]] = values[i]
 
-            truth = np.argmax(values[-2], 1)  # values[2] is a 3-length one-hot vector containing the labels
+            truth = [3 if (x == [1,1,1]).all() else np.argmax(x) for x in values[-2]]  # values[2] is a 3-length one-hot vector containing the labels
             ids_all.extend(values[-1])
             predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
                                      feed_dict=feed_dict)
@@ -235,3 +235,60 @@ def predict_holdout(headlines_holdout, bodies_holdout, labels_holdout, tanhOrSof
     actual = [LABELS[int(a)] for a in final_actual]
 
     return predicted,actual
+
+def predict_submission(headlines, bodies, ids, tanhOrSoftmax, hidden_size, epoch):
+
+    batch_size = 70
+
+    outfolder = "_".join(["hidden-" + str(hidden_size), tanhOrSoftmax])
+
+    labels_holdout = np.tile([0,0,0],(len(headlines),1))
+    
+
+    pad_nr = batch_size - (
+    len(headlines) % batch_size) + 1  # since train/test batches need to be the same size, add padding for test
+
+    data_test = [np.lib.pad(np.vstack([np.expand_dims(x, 0) for x in headlines]), ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(np.vstack([np.expand_dims(x, 0) for x in bodies]), ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(np.asarray(labels_holdout), ((0, pad_nr), (0, 0)), 'constant', constant_values=(0)),
+                 np.lib.pad(np.vstack([np.expand_dims(x, 0) for x in ids]), ((0, pad_nr), (0, 0)), 'constant', constant_values=(0))]
+
+    corpus_test_batch = BatchBucketSampler(data_test, batch_size)
+
+    with tf.Session() as sess:
+
+        load_model_holdout(sess, "rnn/save/" + outfolder + "_ep" + str(epoch-1), "model.tf")
+
+        model = tf.get_collection("model")[0]
+
+        placeholders = [
+            tf.get_collection("inputs")[0],
+            tf.get_collection("inputs_cond")[0],
+            tf.get_collection("targets")[0],
+            tf.placeholder(tf.float32, [batch_size, 1], "ids")
+        ]
+
+        total = 0
+
+        predictions_all = []
+        ids_all = []
+
+        for values in corpus_test_batch:
+            total += len(values[-1])
+            feed_dict = {}
+            for i in range(0, len(placeholders)):
+                feed_dict[placeholders[i]] = values[i]
+            ids_all.extend(values[-1])
+            predicted = sess.run(tf.arg_max(tf.nn.softmax(model), 1),
+                                     feed_dict=feed_dict)
+            predictions_all.extend(predicted)
+            print(ids_all)
+            print(predictions_all)
+            print('PREDICTIONS: '+str(total))
+
+    final_predicted = {}
+    for idx, val in enumerate(predictions_all):
+        if ids_all[idx][0] != 0:
+            final_predicted[ids_all[idx][0]] = val
+
+    return final_predicted
